@@ -30,14 +30,19 @@ class AnnouncementPolicy:
         self._last_call: float | None = None
 
     def select_labels(
-        self, detections: Iterable[Detection], *, now: float | None = None
+        self, detections: Iterable[Detection], *, now: float | None = None,
+        max_labels: int | None = None,
     ) -> tuple[str, ...]:
         """Return eligible labels in input order and start their cooldowns.
 
         By default use a monotonic clock, unaffected by wall-clock changes.
         Tests may provide nondecreasing timestamps in seconds instead. Keep
         the same clock source for all calls on a policy instance.
+        max_labels optionally bounds an utterance; labels beyond the limit
+        keep their previous cooldown state so they can be selected next time.
         """
+        if max_labels is not None and max_labels <= 0:
+            raise ValueError("max_labels must be positive")
         timestamp = monotonic() if now is None else now
         if not isfinite(timestamp):
             raise ValueError("now must be finite")
@@ -53,4 +58,6 @@ class AnnouncementPolicy:
             if previous is None or timestamp - previous >= self.cooldown_seconds:
                 labels.append(detection.label)
                 self._last_announced[detection.label] = timestamp
+                if max_labels is not None and len(labels) >= max_labels:
+                    break
         return tuple(labels)

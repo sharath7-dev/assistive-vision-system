@@ -1,3 +1,6 @@
-# Phase 1 runtime uses only Python's standard library.
+# Phase 2 runtime: webcam, pretrained detector, and offline speech.
+opencv-python>=4.10,<5
+ultralytics>=8.3,<9
+pyttsx3>=2.98,<3
 # pytest is needed only to run the automated tests.
 pytest>=8.3,<9
