@@ -306,17 +306,17 @@ The following are proposals, not implemented features:
 
 ## Demo Screenshots
 
-![Assistive Vision dashboard during live detection](docs/screenshots/assistive-vision-demo.png)
+![Assistive Vision dashboard during live detection](docs/Screenshots/assistive-vision-demo.png)
 
 Live dashboard showing model-returned labels, confidence scores, session controls,
 and recent detections. This example uses a confidence threshold of 0.18.
 
-![Object detection preview with bottle, keyboard, and mouse labels](docs/screenshots/object-detection.png)
+![Object detection preview with bottle, keyboard, and mouse labels](docs/Screenshots/object-detection.png)
 
 Object detection at a 0.50 threshold, with bounding boxes and confidence scores
 for a bottle, keyboard, and mouse, alongside processing and speech status.
 
-![Assistive Vision idle dashboard with the camera off](docs/screenshots/assistive-vision-idle-state.png)
+![Assistive Vision idle dashboard with the camera off](docs/Screenshots/assistive-vision-idle-state.png)
 
 Idle state before starting the camera: detection is idle, the model is not loaded,
 and the recent-detections list is empty.
