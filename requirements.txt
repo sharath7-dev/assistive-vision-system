@@ -1,6 +1,8 @@
-# Phase 2 runtime: webcam, pretrained detector, and offline speech.
+# Runtime: webcam, pretrained detector, offline speech, and desktop preview.
 opencv-python>=4.10,<5
 ultralytics>=8.3,<9
 pyttsx3>=2.98,<3
+# Lightweight image bridge for Tkinter; already required by Ultralytics.
+Pillow>=10,<13
 # pytest is needed only to run the automated tests.
 pytest>=8.3,<9

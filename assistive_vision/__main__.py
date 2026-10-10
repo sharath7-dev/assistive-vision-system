@@ -1,4 +1,4 @@
-"""Temporary OpenCV preview for Phase 2 manual verification (no Tkinter)."""
+"""Shared launcher: OpenCV preview by default, Tkinter dashboard with --gui."""
 
 import argparse
 from math import isfinite
@@ -21,7 +21,8 @@ def confidence_value(value: str) -> float:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Phase 2 assistive vision preview")
+    parser = argparse.ArgumentParser(description="Assistive Vision desktop / OpenCV preview")
+    parser.add_argument("--gui", action="store_true", help="open the Tkinter desktop dashboard")
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--weights", default="yolo11n.pt")
     parser.add_argument("--mute", action="store_true")
@@ -40,6 +41,18 @@ def main() -> int:
         SpeechService(debug=args.debug), AnnouncementPolicy(min_confidence=args.confidence),
     )
     pipeline.speech.set_muted(args.mute)
+    if args.gui:
+        try:
+            from .gui import launch_gui
+
+            return launch_gui(pipeline, confidence=args.confidence, muted=args.mute,
+                              debug=args.debug)
+        except Exception as exc:
+            pipeline.stop()
+            pipeline.join()
+            pipeline.speech.join()
+            print(f"Desktop UI unavailable: {exc}", file=sys.stderr)
+            return 1
     paused, muted = False, args.mute
     reporter = DebugReporter(enabled=args.debug)
     pipeline.start()

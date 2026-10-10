@@ -41,6 +41,10 @@ class YoloDetector:
         self._loader = loader
         self._model: Any = None
 
+    @property
+    def ready(self) -> bool:
+        return self._model is not None
+
     def detect(self, frame: Any) -> tuple[Detection, ...]:
         if self._model is None:
             try:
