@@ -1,0 +1,25 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtual environments and machine-specific configuration
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+
+# Future local model weights and generated demo recordings
+*.pt
+*.onnx
+recordings/

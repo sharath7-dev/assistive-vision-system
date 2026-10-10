@@ -1,0 +1,3 @@
+# Phase 1 runtime uses only Python's standard library.
+# pytest is needed only to run the automated tests.
+pytest>=8.3,<9
