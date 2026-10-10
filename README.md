@@ -1,211 +1,313 @@
 # Real-Time Assistive Vision System for the Visually Impaired
 
-Windows / Python 3.11 IPCV university prototype: recognize common objects from
-a webcam, display labeled boxes, and speak short announcements. Phase 3 adds
-a dark Tkinter/ttk desktop dashboard around the existing background pipeline.
-The OpenCV preview remains available using the same processing modules.
+An Image Processing and Computer Vision (IPCV) university project that uses a
+webcam to recognize common objects, display labeled bounding boxes, and provide
+short spoken announcements through a Windows desktop application.
 
-## Windows setup and launch (PowerShell)
+**Current status:** Phase 3 implementation complete; Phase 5A documentation polish.
+The application uses pretrained YOLO11n weights with CPU inference. It is an
+assistive awareness prototype, not a certified navigation or safety device.
 
-Run from the project folder. Reuse the existing `.venv`; create it only if absent.
-All packages are installed locally, without activating the environment.
+## Problem statement
+
+Visual information about surrounding objects can be difficult to access for
+people with visual impairments. This project explores how a live camera and
+pretrained object detector can convert some of that information into concise
+audio feedback, while providing a visual interface for demonstration and testing.
+
+## Objectives
+
+- Capture and process live webcam frames.
+- Recognize supported object classes and display their labels, confidence scores,
+  and bounding boxes.
+- Announce eligible classes without continuously repeating the same objects.
+- Keep the interface responsive during capture, inference, and speech.
+- Provide clear controls and useful feedback when a device or dependency fails.
+- Keep the implementation modular, testable, and understandable for a university viva.
+
+## Key features
+
+- Dark Tkinter/ttk dashboard with a resizable, aspect-preserving camera preview.
+- Pretrained YOLO11n detection with a shared detection/speech confidence threshold.
+- Asynchronous offline speech, using phrases such as “Chair detected.”
+- Fair, bounded class scheduling; cooldowns and stale pending-announcement removal.
+- Start/stop camera, pause/resume detection, mute/unmute speech, and clean exit.
+- Processing FPS, camera/detection/model status, and speech status.
+- Recent history of up to six classes seen within the last ten seconds.
+- Keyboard controls and rate-limited optional diagnostics.
+- An alternative OpenCV preview using the same processing pipeline.
+
+## Technology stack
+
+| Component | Technology and role |
+| --- | --- |
+| Language | Python 3.11; development environment uses Python 3.11.9 |
+| Camera and drawing | OpenCV (`opencv-python`): capture, frames, boxes, and labels |
+| Object detection | Ultralytics with pretrained YOLO11n; CPU execution |
+| Desktop interface | Python standard-library Tkinter and ttk |
+| Preview image bridge | Pillow: conversion/resizing for Tkinter display |
+| Text-to-speech | pyttsx3; Windows SAPI speech with a persistent event loop |
+| Automated testing | pytest, with mocks for model, camera, and audio adapters |
+
+The declared dependencies and version ranges are in `requirements.txt`.
+Ultralytics installs PyTorch and other transitive dependencies, so environment
+installation is substantially larger than the nano model weights. No custom
+training, paid API, database, Docker, or cloud inference is used.
+
+## System architecture
+
+```mermaid
+flowchart TD
+    Webcam["Webcam frames"]
+    subgraph Vision["Background vision worker — pipeline.py"]
+        Capture["OpenCV capture and frame validation — camera.py"]
+        Model["Lazy YOLO11n CPU detection — detector.py"]
+        Results["Confidence-filtered Detection results: label, score, pixel box"]
+        Draw["OpenCV bounding boxes and labels — drawing.py"]
+        Latest["Latest-frame mailbox: annotated frame, detections, FPS, status"]
+        Schedule["Class deduplication, cooldown and bounded scheduling — announcements.py"]
+    end
+    subgraph Desktop["Tkinter main thread"]
+        GUI["GUI preview, metrics and recent history — gui.py"]
+        Controls["Start/stop, pause/resume, mute/unmute, confidence, quit"]
+    end
+    subgraph Audio["Background speech worker — speech.py"]
+        Pending["Current-label validation and expiring pending speech slot"]
+        TTS["pyttsx3 asynchronous announcements"]
+    end
+    Webcam --> Capture --> Model --> Results
+    Capture -->|Frame| Draw
+    Results --> Draw --> Latest
+    Results --> Latest
+    Latest -->|Polled with Tkinter after| GUI
+    Results --> Schedule --> Pending --> TTS
+    Results -->|Refresh current labels; discard stale pending speech| Pending
+    Controls -->|Pipeline controls| Capture
+    Controls -->|Shared confidence threshold and pause| Model
+    Controls -->|Mute and shutdown| Pending
+```
+
+Capture, inference, and drawing execute on one vision worker. Speech owns its
+engine on a separate worker. Only the latest processed frame is retained for
+the GUI; Tkinter widget updates run on the main thread. The desktop controller
+reuses one pipeline and waits for cleanup before permitting a new camera session.
+
+Speech scheduling observes every processed detection frame, even while speech
+is busy. It queues up to six eligible classes in arrival order and submits one
+class phrase at a time. A continuously visible class is announced once per
+appearance. Reappearance requires at least one second of absence and also
+respects an eight-second per-class cooldown. Missing or below-threshold classes
+leave the waiting queue; pending speech expires after two seconds from its
+source-frame observation. Pause, mute, and empty detection results clear pending
+speech context. An utterance already handed to the audio engine may finish.
+
+Labels are preserved from detector results through drawing and speech. Multiple
+instances of one class produce one class announcement; the system does not
+track individual object identities. Recent GUI history never drives speech.
+
+### Project structure
+
+| Path | Responsibility |
+| --- | --- |
+| `assistive_vision/__main__.py` | Shared GUI/OpenCV command-line launcher |
+| `assistive_vision/detections.py` | Validated, immutable detection data |
+| `assistive_vision/camera.py` | Camera opening, reading, and release |
+| `assistive_vision/detector.py` | Lazy model loading and result conversion/filtering |
+| `assistive_vision/drawing.py` | Bounding boxes, class labels, and confidence overlays |
+| `assistive_vision/announcements.py` | Confidence policy, cooldowns, and fair class scheduling |
+| `assistive_vision/speech.py` | Speech worker, freshness checks, and Windows event pump |
+| `assistive_vision/pipeline.py` | Background processing, control handoff, and latest result |
+| `assistive_vision/desktop_logic.py` | Session controls, preview sizing, and bounded history |
+| `assistive_vision/gui.py` | Tkinter/ttk dashboard |
+| `assistive_vision/diagnostics.py` | Rate-limited diagnostic summaries |
+| `tests/` | Hardware-independent automated tests |
+| `requirements.txt` | Runtime and test dependencies |
+
+## Windows installation and setup
+
+### Prerequisites
+
+- Windows with Python 3.11 installed, including Tcl/Tk support.
+- A working webcam and camera permission for desktop applications.
+- Speakers or headphones, a working output device, and an installed Windows speech voice.
+- Internet access for dependency installation and the first weight download,
+  unless the environment and model weights are already available locally.
+
+Use **PowerShell** and run commands from the repository root, where
+`requirements.txt` and `assistive_vision/` are located. The current development
+checkout is shown below; change the path if your copy is elsewhere.
 
 ```powershell
 Set-Location "H:\IPCV\New folder\assistive-vision-system"
+python --version
 if (-not (Test-Path .venv)) { python -m venv .venv }
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Confirm that `python --version` reports Python 3.11 before creating the environment.
+Reuse an existing Python 3.11 `.venv`. These commands install dependencies locally;
+activation and global package installation are unnecessary. Tkinter is supplied
+by the Windows Python installer, rather than this requirements file.
+
+### Launch the desktop application
+
+```powershell
 .\.venv\Scripts\python.exe -m assistive_vision --gui
 ```
 
-The GUI starts with the camera off. Select **Start camera**, then use **Stop
-camera**, **Pause detection / Resume detection**, **Mute speech / Unmute
-speech**, and **Quit application**. The confidence slider changes the detector
-and announcement threshold on the next processing frame; it does not reload
-the model. Left/Right arrow keys change a focused slider by 0.01.
+The GUI opens with the camera off. Select **Start camera** to begin capture and
+detection. YOLO11n loads on the first unpaused detection. If `yolo11n.pt` is
+missing, Ultralytics attempts to download it. Wait for model readiness before
+expecting detections; unit tests do not perform this download.
 
-The dashboard shows an aspect-preserving preview with status outside the
-image, measured FPS, actual camera/detection/model states, and up to six
-recent object classes from the last ten seconds. The recent list is history,
-not a claim that those objects remain in the current scene, and never drives
-speech. It has a scrollbar for compact windows. Tab/Shift+Tab navigate controls;
-Ctrl+Enter starts/stops, P pauses/resumes, M mutes/unmutes, and Escape or Ctrl+Q
-quits. Window closing follows the same shutdown path.
+With existing local weights, use:
 
-Stop/quit request shutdown and poll both workers without blocking Tkinter.
-Starting again is disabled until camera and speech cleanup finish. Cached
-model weights/model instance are reused across sessions. A native driver,
-download, inference call, or active utterance may take time to return; the
-window remains responsive while waiting rather than opening a duplicate session.
-The minimum window size preserves readable controls (1000 x 860).
+```powershell
+.\.venv\Scripts\python.exe -m assistive_vision --gui --weights .\yolo11n.pt
+```
 
-For the original OpenCV preview, omit `--gui`:
+Run from this folder to keep downloaded weights in the project. Model files
+are ignored by Git and are not guaranteed to be included in a fresh checkout.
+Ultralytics configuration defaults to ignored `.local/ultralytics`, unless a
+`YOLO_CONFIG_DIR` environment variable is already set. After installation and
+with local weights and a working speech voice, inference and speech operate offline.
+
+### Launch options
+
+| Option | Behavior |
+| --- | --- |
+| `--gui` | Open the Tkinter dashboard; omission uses the OpenCV preview |
+| `--camera 1` | Choose camera index 1; default is 0 |
+| `--weights .\yolo11n.pt` | Supply an existing pretrained detection weight file |
+| `--confidence 0.5` | Set the detector and announcement threshold; default 0.5, range 0–1 |
+| `--mute` | Start with speech muted |
+| `--debug` | Print at most one diagnostic summary per second |
+| `--help` | Display the supported command-line options |
+
+For example:
+
+```powershell
+.\.venv\Scripts\python.exe -m assistive_vision --gui --debug --confidence 0.5
+.\.venv\Scripts\python.exe -m assistive_vision --gui --camera 1 --mute
+```
+
+## Operating the application
+
+| Control | Action |
+| --- | --- |
+| Start camera / Stop camera | Start processing or release the camera and stop speech workers |
+| Pause detection / Resume detection | Suspend or resume detection while the camera preview continues |
+| Mute speech / Unmute speech | Disable or enable announcements; pending speech is discarded on mute |
+| Confidence slider | Change the shared detection/speech threshold on a subsequent processing frame |
+| Quit application / window close | Request worker cleanup and close the application |
+
+The GUI exposes camera, detection, model, and speech states separately from the
+preview. FPS is measured processing throughput, not the camera's nominal frame
+rate or a guaranteed GUI refresh rate. The recent list is history, so it can
+contain a class that is no longer visible in the current frame.
+
+Use Tab/Shift+Tab to navigate controls. Ctrl+Enter starts/stops the camera,
+P pauses/resumes detection, M mutes/unmutes, and Escape or Ctrl+Q quits.
+Left/Right changes a focused confidence slider by 0.01. The window has a minimum
+size of 1000 × 860; allow enough display space for the controls.
+
+Stop/quit does not forcibly interrupt native camera or inference calls. Cleanup
+may wait for those calls or an active speech utterance to return. The GUI polls
+worker state during shutdown instead of blocking its main thread.
+
+For the alternative OpenCV preview:
 
 ```powershell
 .\.venv\Scripts\python.exe -m assistive_vision
 ```
 
-That preview starts capture/detection automatically. With the preview focused,
-press **P** to pause/resume detection (camera preview continues), **M** to
-mute/unmute, and **Q** or Escape to quit. Closing the preview also quits.
-Ctrl+C works in the terminal, including during initial model loading.
+It starts the camera automatically. With that preview focused, P pauses/resumes,
+M mutes/unmutes, and Q or Escape quits. Closing the preview or pressing Ctrl+C
+in the terminal also requests shutdown.
+
+## Testing and verification
+
+Run the complete existing suite from the repository root:
 
 ```powershell
-# Another camera, initially muted
-.\.venv\Scripts\python.exe -m assistive_vision --gui --camera 1 --mute
-# Existing local pretrained detection weights, including offline operation
-.\.venv\Scripts\python.exe -m assistive_vision --weights .\yolo11n.pt
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-YOLO11n is loaded lazily on the first unpaused detection. If the default
-`yolo11n.pt` is absent, Ultralytics attempts to download it. Internet access is
-needed for that first download; afterward the local weights can be reused.
-Unit tests never load actual models, download weights, or access hardware.
-Inference explicitly uses **CPU**, confidence threshold 0.5, and image size
-416. Use `--confidence 0.5` to configure the same threshold for detection and
-speech; the default has not been increased to mask false positives. Scores
-are model confidence values and do not guarantee that a label is correct.
-PyTorch and related packages are required dependencies of Ultralytics;
-installation is substantially larger than the nano model itself.
+**Latest automated result, 10 October 2026: 142 passed.** The suite was rerun
+during this documentation phase. The launcher options were also checked with
+`python -m assistive_vision --help` using the local virtual environment.
 
-## How the modules fit together
+Tests cover detection validation, label/score/box preservation, confidence
+filtering, cooldowns, fair multi-class scheduling, persistence and reappearance,
+stale pending speech, mute behavior, mocked adapter failures, worker cleanup,
+Windows speech-loop behavior, and UI-independent desktop logic. They use mocks
+and require no physical camera, real speaker, or model-weight download. Passing
+tests do not measure detection accuracy, prove audible output, or certify safety.
 
-- `detections.py`: Phase 1 validated, immutable label/confidence/pixel-box data.
-- `announcements.py`: Phase 1 per-label cooldown (8 seconds), confidence filter,
-  and frame deduplication. An optional label limit supports short utterances
-  without consuming cooldowns for labels that were not selected. The live
-  scheduler observes every frame even while audio is busy, queues at most six
-  current classes in arrival order, and serves one concise phrase at a time
-  ("Person detected", "Chair detected", "Bottle detected"). Persistent classes
-  are announced once per appearance, rather than every cooldown interval.
-  Absence for at least one second establishes a new appearance; re-announcement
-  also respects the eight-second class cooldown. Brief missed frames therefore
-  do not cause chatter. Overflow classes enter as queue space becomes available.
-- `camera.py`: OpenCV device opening, frame reads, and resource release.
-- `detector.py`: lazy YOLO11n adapter returning standard `Detection` instances.
-- `drawing.py`: copies frames and adds boxes, dark label backgrounds, and scores.
-- `speech.py`: offline pyttsx3 engine on its own thread. It accepts at most one
-  utterance at a time, drops submissions while busy, and expires pending speech
-  after two seconds measured from the source frame observation, including
-  inference time. Every processed frame refreshes valid labels, even while
-  speech is busy. Disappeared labels are removed from pending announcements;
-  empty detections, pause, and mute discard pending speech. Audio already
-  handed to the engine may finish. A six-class scheduler queue plus one speech
-  slot bounds pending work. Engine-handoff/cancellation receipts ensure that
-  cancelled or rejected requests do not consume an announcement or cooldown.
-  Muting keeps current class context fresh; unmuting serves currently valid,
-  unannounced classes, not disappeared history.
-- `pipeline.py`: background capture/inference/drawing worker. `start()`,
-  `set_paused()`, `stop()`, and `latest()` support the desktop GUI without putting
-  inference on its main thread. Only the latest frame is stored. FPS measures
-  processing throughput, not camera hardware FPS or GUI refresh rate.
-- `desktop_logic.py`: bounded recent-detection history, preview sizing, and
-  single-pipeline session controls, tested without Tkinter or hardware.
-- `gui.py`: Tkinter/ttk dashboard; all widget/image updates use the main thread
-  through `after()`. It reads the existing latest-frame mailbox.
-- `__main__.py`: shared launcher for the GUI and original OpenCV preview.
-- `tests/`: core and mocked adapter/concurrency tests, preserving Phase 1 tests.
+The project developer reports successful manual testing of the GUI, live webcam
+detection, speech announcements, mute/unmute, pause/resume, stop, and clean exit.
+These are functional checks on the tested setup, not evidence of compatibility
+with every Windows device. No new hardware testing was performed in Phase 5A.
 
-GUI clients should call controls from one main thread and read `latest()`
-without mutating its frame. `stop()` is nonblocking; `join()` is available for
-bounded shutdown waits. Native camera calls, model download/inference, and an
-active speech utterance cannot be forcibly interrupted. Workers are daemon
-threads as a fallback if a native dependency stalls during exit.
+Before a submission demo, confirm those functions on the presentation machine.
+Also check first-use model loading, an unavailable camera, confidence changes,
+repeated start/stop, resizing and keyboard focus. These additional checks are
+recommended; they are not all claimed as manually verified here.
 
-## Errors and manual verification
+## Troubleshooting
 
-- Camera opening/reading errors stop the processing worker with an actionable
-  status. Check **Windows Settings > Privacy & security > Camera**, enable
-  desktop-app access, close other camera apps, and try `--camera 1`.
-- Missing dependencies, unavailable weights, or inference errors produce a
-  status message and release the camera. Fix the reported problem and restart.
-- Speech initialization/playback failure disables announcements while video
-  continues. Check Windows output device, volume, and installed speech voices.
-- Run commands from this folder to keep downloaded weights here. Ultralytics
-  configuration is directed to ignored `.local/ultralytics` unless a
-  `YOLO_CONFIG_DIR` was already configured by the user. Model files are ignored.
+| Symptom | Suggested action |
+| --- | --- |
+| Camera cannot open | Enable desktop-app camera access in Windows settings, close competing camera apps, or try another `--camera` index |
+| Model loading fails | Check the reported error, installation, first-download internet access, or the path supplied with `--weights` |
+| Speech is unavailable | Check output device/volume and installed Windows voices; video can continue after a speech failure |
+| Imports fail | Install `requirements.txt` using `.venv\Scripts\python.exe`; confirm you launch with that interpreter |
+| Unexpected label or announcement | Compare the current bounding box and score with `--debug` output before changing the threshold |
 
-Before a demo, manually verify camera opening, initial weight download, boxes
-and scores on familiar objects, FPS on your laptop, speech without repetition,
-pause/resume, mute/unmute, quit, and offline restart with local weights. Also
-try an unavailable camera index to confirm the error message. Webcam, actual
-model inference, and audio hardware have **not** been verified by unit tests.
+Debug summaries include sampled current classes/confidence, FPS, frame age,
+and speech state. The last speech request is historical and is not proof that
+an object remains visible or that audio was heard. Debug mode does not log every
+frame. Normal operation is quiet apart from warnings/errors; Ultralytics may
+still print first-download progress.
 
-This prototype does not measure exact distances or guarantee safe navigation.
-Labels describe object classes rather than tracking individual identities.
-There is no model training, paid API, database, Docker, or cloud inference.
+## Known limitations
 
-API references: [Ultralytics YOLO11](https://docs.ultralytics.com/models/yolo11/),
-[prediction results](https://docs.ultralytics.com/modes/predict/), and
-[pyttsx3](https://pyttsx3.readthedocs.io/en/latest/).
+- Pretrained YOLO11n recognizes a fixed set of 80 classes. It can miss objects,
+  produce false positives, or misclassify them under unfamiliar conditions.
+- **There is no dedicated pen class.** A pen may be missed or misclassified as
+  a supported class such as `cell phone`. That reported case was not reproduced
+  in the earlier 25-frame local check, so no pen-specific score or box is established.
+- Confidence is a model score, not proof of correctness. Increasing the threshold
+  can remove useful detections and does not guarantee correct classification.
+- Lighting, occlusion, object size, camera angle, motion, and CPU performance affect
+  results. Inference currently uses CPU and a 416-pixel model input size.
+- Classes, rather than individual objects, are announced. This is not object
+  tracking, scene understanding, or a complete obstacle-detection system.
+- The system does not estimate exact distances, identify safe paths, or guarantee
+  safe navigation. It must not replace mobility aids or professional guidance.
+- Pending speech is bounded and stale labels are discarded, but camera buffering,
+  inference latency, and an already-started utterance can delay feedback.
+- The dashboard offers keyboard access and spoken object feedback; comprehensive
+  screen-reader accessibility and studies with visually impaired users have not
+  been established.
+- Dependency ranges are not a fully locked environment, and performance has not
+  been benchmarked across different machines.
 
-## Investigating an unexpected announcement
+## Future improvements
 
-```powershell
-.\.venv\Scripts\python.exe -m assistive_vision --gui --debug --confidence 0.5
-```
+The following are proposals, not implemented features:
 
-With `--debug`, the terminal prints at most one concise summary per second:
-current labels with their highest confidence, FPS, frame number/age, and live
-speech state. Crowded scenes show up to five distinct labels. The last speech
-request and its source observation age are included when available; this is
-a historical request, not a current detection or confirmation of audible
-playback. Summaries sample the latest state and do not record every frame.
-Normal mode is quiet apart from important warnings and errors. Initial model
-downloads may still show messages from Ultralytics. The matching processed
-frame is published before new speech submission.
+- Evaluate detection accuracy and latency using documented scenes and repeatable measurements.
+- Improve usability and screen-reader accessibility through user feedback and testing.
+- Assess speech pacing and prioritization in crowded scenes.
+- Explore tracking to distinguish individual instances and reduce detection flicker.
+- Expand supported object recognition only after evaluating the existing model's limitations.
+- Investigate calibrated depth sensing for distance information as a separate extension.
 
-1. With nobody visible, inspect the preview and terminal for a `person` box.
-   If the current model result labels part of the empty scene as a person,
-   that is a model false positive; record the preview box, score, scene, and lighting.
-2. Enter the scene, then leave. New empty detection results must remove pending
-   person announcements. An utterance already started may finish, and camera
-   buffering or slow inference can mean the processed scene lags real life.
-3. Repeat pause/resume and mute/unmute while leaving. Pending speech should
-   not replay on resume/unmute. Cooldown starts at actual engine handoff;
-   cancelled pending requests do not consume it. Classes already announced
-   remain quiet while continuously visible.
-4. Compare the speech request age and current detection output before deciding
-   whether a remaining issue is a model label, processing delay, or audio delay.
-   Do not increase confidence without checking that evidence first.
+## Submission evidence
 
-The disappearance and expiry fixes are verified with mocks. They do not prove
-the cause of any specific webcam observation or eliminate YOLO false positives.
-
-### Speech driver and label verification
-
-On the installed Windows pyttsx3 2.99 driver, repeated `runAndWait()` calls
-completed the first phrase but cancelled subsequent phrases. Windows speech
-now uses one persistent external event loop on the existing speech worker.
-Completion failures and a ten-second timeout become visible speech errors.
-Three successive phrases were checked through the real driver and application
-worker; callback completion does not independently verify audible speaker output.
-
-The current YOLO11n weights contain 80 classes, including `cell phone`, `chair`,
-`couch`, and `bed`, but no `pen` class. An actual pen may be missed or incorrectly
-classified. Drawing and speech preserve the returned class name; a confidence
-threshold cannot guarantee correct classification. The default remains 0.5.
-
-A local webcam check captured 25 frames at that threshold and returned person
-and bed detections, without reproducing the reported cell-phone label. Ignored
-local evidence is in `.local/verification/` (JSON scores/boxes and annotated
-images); no pen-specific confidence or box was established. To verify the
-reported case, show the pen clearly with `--gui --debug`, compare the current
-box label and confidence with the spoken phrase, and record that frame. Tests
-cover unchanged labels, scores and boxes through filtering, drawing and
-announcement selection without requiring hardware.
-
-## Phase 3 verification
-
-Automated tests exercise dashboard sizing/history/session logic, confidence
-handoff, pipeline states, and shared GUI launch without a physical device or
-model downloads. A separate UI-only check initialized/resized the Tkinter
-window and displayed a synthetic annotated frame; this is not webcam, actual
-YOLO inference, or audio hardware testing.
-
-Before presenting, manually verify live boxes and speech, threshold changes,
-repeated start/stop without camera conflicts, pause/resume, mute/unmute,
-keyboard focus/shortcuts, window resizing, model-loading and missing-camera
-messages, and quit while detection/speech is active. Pillow is the lightweight
-Tkinter image bridge and is explicitly declared; it was already installed as
-an Ultralytics dependency. Tkinter comes with the normal Windows Python installer.
+A real application screenshot, a recorded demo, test-machine specifications,
+and measured performance would strengthen the submission. They are not embedded
+here because no submission-ready assets or benchmark results were supplied.
+Add actual evidence when available; no screenshot, demo link, or accuracy result
+has been fabricated.
